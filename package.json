@@ -20,6 +20,26 @@
       "title": "Trace Lyrics",
       "description": "Load lyrics from a song name argument and copy lyric lines while tracing.",
       "mode": "view",
+      "preferences": [
+        {
+          "name": "defaultCopyMode",
+          "type": "dropdown",
+          "required": false,
+          "title": "Default Copy Style",
+          "description": "Select the copy format used by Enter in the lyrics list.",
+          "default": "original",
+          "data": [
+            {
+              "title": "Original",
+              "value": "original"
+            },
+            {
+              "title": "Kebab-Case",
+              "value": "kebab"
+            }
+          ]
+        }
+      ],
       "arguments": [
         {
           "name": "songName",

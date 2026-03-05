@@ -1,4 +1,16 @@
-import { Action, ActionPanel, Clipboard, Icon, LaunchProps, List, Toast, showToast } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Clipboard,
+  Color,
+  closeMainWindow,
+  getPreferenceValues,
+  Icon,
+  LaunchProps,
+  List,
+  Toast,
+  showToast,
+} from "@raycast/api";
 import { useEffect, useMemo, useState } from "react";
 import { fetchLyrics, resolveSongFromQuery } from "./lyrics-provider";
 import { buildProgressKeys, getSavedProgress, setSavedProgress } from "./storage";
@@ -7,6 +19,10 @@ import { CopyMode, LyricsLine, SongSearchResult } from "./types";
 
 type Arguments = {
   songName?: string;
+};
+
+type Preferences = {
+  defaultCopyMode?: CopyMode;
 };
 
 function clampIndex(index: number, length: number) {
@@ -24,10 +40,18 @@ function findRestoredIndex(lines: LyricsLine[], savedIndex: number, savedLineTex
   return clampIndex(savedIndex, lines.length);
 }
 
-function LyricsFromArgumentView({ query }: { query: string }) {
+function normalizeCopyMode(mode: string | undefined): CopyMode {
+  return mode === "kebab" ? "kebab" : "original";
+}
+
+function copyModeLabel(mode: CopyMode) {
+  return mode === "kebab" ? "Kebab-Case" : "Original";
+}
+
+function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; defaultCopyMode: CopyMode }) {
   const [song, setSong] = useState<SongSearchResult | null>(null);
   const [lines, setLines] = useState<LyricsLine[]>([]);
-  const [selectedLineId, setSelectedLineId] = useState<string | undefined>();
+  const [lastSavedLineId, setLastSavedLineId] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -40,7 +64,7 @@ function LyricsFromArgumentView({ query }: { query: string }) {
       if (!trimmedQuery) {
         setSong(null);
         setLines([]);
-        setSelectedLineId(undefined);
+        setLastSavedLineId(undefined);
         setErrorMessage("Provide a song name as the command argument.");
         setIsLoading(false);
         return;
@@ -61,12 +85,16 @@ function LyricsFromArgumentView({ query }: { query: string }) {
         setErrorMessage(null);
 
         if (nextLines.length === 0) {
-          setSelectedLineId(undefined);
+          setLastSavedLineId(undefined);
           return;
         }
 
-        const targetIndex = saved ? findRestoredIndex(nextLines, saved.index, saved.lineText) : 0;
-        setSelectedLineId(String(targetIndex));
+        if (saved) {
+          const targetIndex = findRestoredIndex(nextLines, saved.index, saved.lineText);
+          setLastSavedLineId(String(targetIndex));
+        } else {
+          setLastSavedLineId(undefined);
+        }
       } catch (error) {
         if (cancelled) {
           return;
@@ -74,7 +102,7 @@ function LyricsFromArgumentView({ query }: { query: string }) {
 
         setSong(null);
         setLines([]);
-        setSelectedLineId(undefined);
+        setLastSavedLineId(undefined);
         setErrorMessage(error instanceof Error ? error.message : "Could not load lyrics.");
       } finally {
         if (!cancelled) {
@@ -90,7 +118,7 @@ function LyricsFromArgumentView({ query }: { query: string }) {
     };
   }, [trimmedQuery]);
 
-  async function copyLine(line: LyricsLine, mode: CopyMode) {
+  async function copyLine(line: LyricsLine, mode: CopyMode, closeAfterCopy = false) {
     if (!song) {
       await showToast({ style: Toast.Style.Failure, title: "Song not loaded" });
       return;
@@ -104,12 +132,17 @@ function LyricsFromArgumentView({ query }: { query: string }) {
 
     await Clipboard.copy(content);
     await setSavedProgress(buildProgressKeys(song, trimmedQuery), { index: line.index, lineText: line.text });
+    setLastSavedLineId(String(line.index));
 
     await showToast({
       style: Toast.Style.Success,
       title: mode === "original" ? "Copied line" : "Copied line (kebab-case)",
       message: `${song.title} - line ${line.index + 1}`,
     });
+
+    if (closeAfterCopy) {
+      await closeMainWindow();
+    }
   }
 
   const navigationTitle = song ? `${song.title} - ${song.artist}` : "Trace Lyrics";
@@ -117,37 +150,38 @@ function LyricsFromArgumentView({ query }: { query: string }) {
   const emptyDescription = errorMessage
     ? errorMessage
     : "No lyrics are available for this song in the selected provider.";
+  const alternativeCopyMode: CopyMode = defaultCopyMode === "original" ? "kebab" : "original";
 
   return (
-    <List
-      filtering={false}
-      isLoading={isLoading}
-      selectedItemId={selectedLineId}
-      onSelectionChange={(id) => setSelectedLineId(id ?? undefined)}
-      navigationTitle={navigationTitle}
-    >
+    <List filtering={false} isLoading={isLoading} navigationTitle={navigationTitle}>
       <List.EmptyView title={emptyTitle} description={emptyDescription} />
       {lines.map((line) => {
         const id = String(line.index);
+        const isLastCopiedLine = lastSavedLineId === id;
+        const accessories: List.Item.Accessory[] = [{ text: `#${line.index + 1}` }];
+        if (isLastCopiedLine) {
+          accessories.push({ text: "Last Copied" });
+        }
 
         return (
           <List.Item
             key={id}
             id={id}
             title={line.text}
-            accessories={[{ text: `#${line.index + 1}` }]}
+            icon={isLastCopiedLine ? { source: Icon.ArrowRight, tintColor: Color.Green } : undefined}
+            accessories={accessories}
             actions={
               <ActionPanel>
                 <Action
-                  title="Copy Line (Original)"
+                  title={`Copy Line (${copyModeLabel(defaultCopyMode)})`}
                   icon={Icon.Clipboard}
-                  onAction={() => copyLine(line, "original")}
+                  onAction={() => copyLine(line, defaultCopyMode, true)}
                 />
                 <Action
-                  title="Copy Line (Kebab-Case)"
+                  title={`Copy Line (${copyModeLabel(alternativeCopyMode)})`}
                   icon={Icon.TextCursor}
                   shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
-                  onAction={() => copyLine(line, "kebab")}
+                  onAction={() => copyLine(line, alternativeCopyMode)}
                 />
               </ActionPanel>
             }
@@ -160,5 +194,7 @@ function LyricsFromArgumentView({ query }: { query: string }) {
 
 export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
   const query = props.arguments.songName ?? "";
-  return <LyricsFromArgumentView query={query} />;
+  const preferences = getPreferenceValues<Preferences>();
+  const defaultCopyMode = normalizeCopyMode(preferences.defaultCopyMode);
+  return <LyricsFromArgumentView query={query} defaultCopyMode={defaultCopyMode} />;
 }

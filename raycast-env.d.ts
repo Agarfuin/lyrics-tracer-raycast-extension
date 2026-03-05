@@ -14,7 +14,10 @@ declare type Preferences = ExtensionPreferences
 
 declare namespace Preferences {
   /** Preferences accessible in the `trace-lyrics` command */
-  export type TraceLyrics = ExtensionPreferences & {}
+  export type TraceLyrics = ExtensionPreferences & {
+  /** Default Copy Style - Select the copy format used by Enter in the lyrics list. */
+  "defaultCopyMode": "original" | "kebab"
+}
 }
 
 declare namespace Arguments {

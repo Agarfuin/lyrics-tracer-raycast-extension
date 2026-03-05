@@ -18,14 +18,15 @@ function normalizeProgressKey(input: string) {
 export function buildProgressKeys(song: SongSearchResult, query?: string) {
   const keys: string[] = [];
 
-  const artist = normalizeProgressKey(song.artist || "unknown-artist");
-  const title = normalizeProgressKey(song.title || "unknown-title");
-  keys.push(`song-name:${artist}::${title}`);
-
   if (song.id && song.id.trim()) {
     keys.push(`song-id:${song.id.trim()}`);
   }
 
+  const artist = normalizeProgressKey(song.artist || "unknown-artist");
+  const title = normalizeProgressKey(song.title || "unknown-title");
+  keys.push(`song-name:${artist}::${title}`);
+
+  // Keep query as a low-priority alias for backward compatibility.
   if (query && query.trim()) {
     keys.push(`query:${normalizeProgressKey(query)}`);
   }
