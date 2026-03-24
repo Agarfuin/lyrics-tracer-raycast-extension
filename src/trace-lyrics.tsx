@@ -52,6 +52,7 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; def
   const [song, setSong] = useState<SongSearchResult | null>(null);
   const [lines, setLines] = useState<LyricsLine[]>([]);
   const [lastSavedLineId, setLastSavedLineId] = useState<string | undefined>();
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -153,14 +154,29 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; def
   const alternativeCopyMode: CopyMode = defaultCopyMode === "original" ? "kebab" : "original";
 
   return (
-    <List filtering={false} isLoading={isLoading} navigationTitle={navigationTitle}>
+    <List
+      filtering={false}
+      isLoading={isLoading}
+      navigationTitle={navigationTitle}
+      selectedItemId={selectedId}
+      onSelectionChange={(id) => setSelectedId(id ?? undefined)}
+    >
       <List.EmptyView title={emptyTitle} description={emptyDescription} />
       {lines.map((line) => {
         const id = String(line.index);
         const isLastCopiedLine = lastSavedLineId === id;
-        const accessories: List.Item.Accessory[] = [{ text: `#${line.index + 1}` }];
+        const isSelected = selectedId === id;
+        const accessories: List.Item.Accessory[] = [
+          {
+            text: {
+              value: `#${line.index + 1}`,
+              color: isSelected ? Color.Magenta : Color.SecondaryText,
+            },
+          },
+        ];
+
         if (isLastCopiedLine) {
-          accessories.push({ text: "Last Copied" });
+          accessories.unshift({ text: { value: "Last Copied", color: Color.Green } });
         }
 
         return (
@@ -182,6 +198,18 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; def
                   icon={Icon.TextCursor}
                   shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
                   onAction={() => copyLine(line, alternativeCopyMode)}
+                />
+                <Action
+                  title="Jump to Last Line"
+                  icon={Icon.ArrowDown}
+                  shortcut={{ modifiers: [], key: "d" }}
+                  onAction={() => setSelectedId(String(lines.length - 1))}
+                />
+                <Action
+                  title="Jump to First Line"
+                  icon={Icon.ArrowUp}
+                  shortcut={{ modifiers: [], key: "u" }}
+                  onAction={() => setSelectedId("0")}
                 />
               </ActionPanel>
             }
