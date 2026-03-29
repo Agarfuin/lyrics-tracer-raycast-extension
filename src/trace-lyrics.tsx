@@ -13,7 +13,14 @@ import {
 } from "@raycast/api";
 import { useEffect, useMemo, useState } from "react";
 import { fetchLyrics, resolveSongFromQuery } from "./lyrics-provider";
-import { buildProgressKeys, getSavedProgress, setSavedProgress } from "./storage";
+import {
+  buildProgressKeys,
+  getCachedTranslation,
+  getSavedProgress,
+  setCachedTranslation,
+  setSavedProgress,
+} from "./storage";
+import { translateLineToEnglish } from "./translation-provider";
 import { toKebabCase } from "./transform";
 import { CopyMode, LyricsLine, SongSearchResult } from "./types";
 
@@ -23,6 +30,7 @@ type Arguments = {
 
 type Preferences = {
   defaultCopyMode?: CopyMode;
+  translationContactEmail?: string;
 };
 
 function clampIndex(index: number, length: number) {
@@ -48,11 +56,17 @@ function copyModeLabel(mode: CopyMode) {
   return mode === "kebab" ? "Kebab-Case" : "Original";
 }
 
-function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; defaultCopyMode: CopyMode }) {
+function formatLineForCopy(text: string, mode: CopyMode) {
+  return mode === "kebab" ? toKebabCase(text) : text;
+}
+
+function LyricsFromArgumentView({ query, defaultCopyMode }: Readonly<{ query: string; defaultCopyMode: CopyMode }>) {
+  const preferences = getPreferenceValues<Preferences>();
   const [song, setSong] = useState<SongSearchResult | null>(null);
   const [lines, setLines] = useState<LyricsLine[]>([]);
   const [lastSavedLineId, setLastSavedLineId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
+  const [translatingLineId, setTranslatingLineId] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -125,7 +139,7 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; def
       return;
     }
 
-    const content = mode === "kebab" ? toKebabCase(line.text) : line.text;
+    const content = formatLineForCopy(line.text, mode);
     if (!content) {
       await showToast({ style: Toast.Style.Failure, title: "Nothing to copy" });
       return;
@@ -146,11 +160,57 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; def
     }
   }
 
+  async function copyLineInEnglish(line: LyricsLine) {
+    if (!song) {
+      await showToast({ style: Toast.Style.Failure, title: "Song not loaded" });
+      return;
+    }
+
+    const lineId = String(line.index);
+    const progressKeys = buildProgressKeys(song, trimmedQuery);
+    const toast = await showToast({ style: Toast.Style.Animated, title: "Translating line to English..." });
+
+    setTranslatingLineId(lineId);
+
+    try {
+      const cachedTranslation = await getCachedTranslation(progressKeys, line);
+      const translation =
+        cachedTranslation ??
+        (await translateLineToEnglish(line.text, {
+          translationContactEmail: preferences.translationContactEmail,
+        }));
+
+      if (!cachedTranslation) {
+        await setCachedTranslation(progressKeys, line, translation);
+      }
+
+      const content = formatLineForCopy(translation.text, defaultCopyMode);
+      if (!content) {
+        throw new Error("Nothing to copy.");
+      }
+
+      await Clipboard.copy(content);
+      await setSavedProgress(progressKeys, { index: line.index, lineText: line.text });
+      setLastSavedLineId(lineId);
+
+      const isAlreadyEnglish = translation.detectedSourceLanguage?.toUpperCase().startsWith("EN") ?? false;
+      toast.style = Toast.Style.Success;
+      toast.title = isAlreadyEnglish
+        ? `Copied line (already English, ${copyModeLabel(defaultCopyMode)})`
+        : `Copied line (English translation, ${copyModeLabel(defaultCopyMode)})`;
+      toast.message = `${song.title} - line ${line.index + 1}`;
+    } catch (error) {
+      toast.style = Toast.Style.Failure;
+      toast.title = "Could not translate line";
+      toast.message = error instanceof Error ? error.message : "Unknown translation error";
+    } finally {
+      setTranslatingLineId(undefined);
+    }
+  }
+
   const navigationTitle = song ? `${song.title} - ${song.artist}` : "Trace Lyrics";
   const emptyTitle = errorMessage ? "Could not load lyrics" : "No lyrics found";
-  const emptyDescription = errorMessage
-    ? errorMessage
-    : "No lyrics are available for this song in the selected provider.";
+  const emptyDescription = errorMessage || "No lyrics are available for this song in the selected provider.";
   const alternativeCopyMode: CopyMode = defaultCopyMode === "original" ? "kebab" : "original";
 
   return (
@@ -179,6 +239,10 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; def
           accessories.unshift({ text: { value: "Last Copied", color: Color.Green } });
         }
 
+        if (translatingLineId === id) {
+          accessories.unshift({ text: { value: "Translating...", color: Color.Orange } });
+        }
+
         return (
           <List.Item
             key={id}
@@ -198,6 +262,12 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; def
                   icon={Icon.TextCursor}
                   shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
                   onAction={() => copyLine(line, alternativeCopyMode)}
+                />
+                <Action
+                  title={`Copy Line (English Translation, ${copyModeLabel(defaultCopyMode)})`}
+                  icon={Icon.Globe}
+                  shortcut={{ modifiers: ["cmd", "shift"], key: "e" }}
+                  onAction={() => copyLineInEnglish(line)}
                 />
                 <Action
                   title="Jump to Last Line"
@@ -220,7 +290,7 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: { query: string; def
   );
 }
 
-export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
+export default function Command(props: Readonly<LaunchProps<{ arguments: Arguments }>>) {
   const query = props.arguments.songName ?? "";
   const preferences = getPreferenceValues<Preferences>();
   const defaultCopyMode = normalizeCopyMode(preferences.defaultCopyMode);

@@ -10,6 +10,7 @@ Lyrics Tracer is a Raycast extension for copying song lyrics line by line.
 - Supports two copy formats:
   - Original
   - kebab-case
+- Can translate the selected line to English with `Cmd + Shift + E`
 - Remembers the last copied line for each song.
 
 ## Usage
@@ -19,6 +20,16 @@ Lyrics Tracer is a Raycast extension for copying song lyrics line by line.
 3. Navigate lines with Up/Down.
 4. Press `Enter` to copy the line as original text.
 5. Use `Cmd + Shift + C` to copy the line in kebab-case.
+6. Use `Cmd + Shift + E` to copy the line translated to English.
+
+## English Translation Setup
+
+English translation uses the MyMemory API.
+
+1. Open Raycast Preferences for this extension.
+2. Optionally add `Translation Contact Email`.
+
+No API key is required. If you provide a contact email, MyMemory documents a higher free daily quota: 50,000 characters/day instead of the anonymous 5,000 characters/day limit.
 
 ## Development
 

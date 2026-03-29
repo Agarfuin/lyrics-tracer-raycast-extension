@@ -38,6 +38,14 @@
               "value": "kebab"
             }
           ]
+        },
+        {
+          "name": "translationContactEmail",
+          "type": "textfield",
+          "required": false,
+          "title": "Translation Contact Email",
+          "description": "Optional email passed to MyMemory to raise the free daily quota from 5,000 to 50,000 characters.",
+          "placeholder": "mail@example.com"
         }
       ],
       "arguments": [

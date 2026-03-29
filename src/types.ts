@@ -14,3 +14,11 @@ export type LyricsLine = {
 };
 
 export type CopyMode = "original" | "kebab";
+
+export type TranslationProvider = "mymemory";
+
+export type EnglishTranslation = {
+  text: string;
+  detectedSourceLanguage?: string;
+  provider: TranslationProvider;
+};
