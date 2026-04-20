@@ -38,14 +38,34 @@ function clampIndex(index: number, length: number) {
 }
 
 function findRestoredIndex(lines: LyricsLine[], savedIndex: number, savedLineText?: string) {
-  if (savedLineText) {
-    const matchedByText = lines.findIndex((line) => line.text === savedLineText);
-    if (matchedByText >= 0) {
-      return matchedByText;
-    }
+  const clampedIndex = clampIndex(savedIndex, lines.length);
+
+  if (!savedLineText) {
+    return clampedIndex;
   }
 
-  return clampIndex(savedIndex, lines.length);
+  if (lines[clampedIndex]?.text === savedLineText) {
+    return clampedIndex;
+  }
+
+  const matchingIndexes = lines.reduce<number[]>((matches, line) => {
+    if (line.text === savedLineText) {
+      matches.push(line.index);
+    }
+
+    return matches;
+  }, []);
+
+  if (matchingIndexes.length === 0) {
+    return clampedIndex;
+  }
+
+  return matchingIndexes.reduce((closestIndex, currentIndex) => {
+    const currentDistance = Math.abs(currentIndex - savedIndex);
+    const closestDistance = Math.abs(closestIndex - savedIndex);
+
+    return currentDistance < closestDistance ? currentIndex : closestIndex;
+  }, matchingIndexes[0]);
 }
 
 function normalizeCopyMode(mode: string | undefined): CopyMode {
