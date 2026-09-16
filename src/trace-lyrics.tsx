@@ -6,7 +6,9 @@ import {
   closeMainWindow,
   getPreferenceValues,
   Icon,
+  launchCommand,
   LaunchProps,
+  LaunchType,
   List,
   Toast,
   showToast,
@@ -20,6 +22,7 @@ import {
   setCachedTranslation,
   setSavedProgress,
 } from "./storage";
+import { translateSongLines } from "./lyrics-translation";
 import { translateLineToEnglish } from "./translation-provider";
 import { toKebabCase } from "./transform";
 import { CopyMode, LyricsLine, SongSearchResult } from "./types";
@@ -31,6 +34,7 @@ type Arguments = {
 type Preferences = {
   defaultCopyMode?: CopyMode;
   translationContactEmail?: string;
+  showInlineTranslation?: boolean;
 };
 
 function clampIndex(index: number, length: number) {
@@ -87,6 +91,7 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: Readonly<{ query: st
   const [lastSavedLineId, setLastSavedLineId] = useState<string | undefined>();
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [translatingLineId, setTranslatingLineId] = useState<string | undefined>();
+  const [lineTranslations, setLineTranslations] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -117,6 +122,7 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: Readonly<{ query: st
 
         setSong(resolvedSong);
         setLines(nextLines);
+        setLineTranslations({});
         setErrorMessage(null);
 
         if (nextLines.length === 0) {
@@ -152,6 +158,35 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: Readonly<{ query: st
       cancelled = true;
     };
   }, [trimmedQuery]);
+
+  const showInlineTranslation = preferences.showInlineTranslation !== false;
+
+  useEffect(() => {
+    if (!showInlineTranslation || !song || lines.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    translateSongLines({
+      lines,
+      songKeys: buildProgressKeys(song, trimmedQuery),
+      preferences: { translationContactEmail: preferences.translationContactEmail },
+      isCancelled: () => cancelled,
+      onTranslated: (lineText, translation) => {
+        setLineTranslations((current) =>
+          current[lineText] === translation ? current : { ...current, [lineText]: translation },
+        );
+      },
+      onQuotaExceeded: (message) => {
+        showToast({ style: Toast.Style.Failure, title: "Translation stopped", message });
+      },
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [song, lines, showInlineTranslation, trimmedQuery, preferences.translationContactEmail]);
 
   async function copyLine(line: LyricsLine, mode: CopyMode, closeAfterCopy = false) {
     if (!song) {
@@ -228,6 +263,24 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: Readonly<{ query: st
     }
   }
 
+  async function playCurrentSong() {
+    if (!song) {
+      await showToast({ style: Toast.Style.Failure, title: "Song not loaded" });
+      return;
+    }
+
+    try {
+      await launchCommand({
+        name: "play-song",
+        type: LaunchType.UserInitiated,
+        arguments: { songName: `${song.title} - ${song.artist}` },
+      });
+    } catch {
+      // launchCommand rejects when the target command is disabled in Raycast settings.
+      await showToast({ style: Toast.Style.Failure, title: "Could not open Play Song" });
+    }
+  }
+
   const navigationTitle = song ? `${song.title} - ${song.artist}` : "Trace Lyrics";
   const emptyTitle = errorMessage ? "Could not load lyrics" : "No lyrics found";
   const emptyDescription = errorMessage || "No lyrics are available for this song in the selected provider.";
@@ -244,6 +297,7 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: Readonly<{ query: st
       <List.EmptyView title={emptyTitle} description={emptyDescription} />
       {lines.map((line) => {
         const id = String(line.index);
+        const translation = lineTranslations[line.text.trim()];
         const isLastCopiedLine = lastSavedLineId === id;
         const isSelected = selectedId === id;
         const accessories: List.Item.Accessory[] = [
@@ -268,6 +322,7 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: Readonly<{ query: st
             key={id}
             id={id}
             title={line.text}
+            subtitle={translation ? `(${translation})` : undefined}
             icon={isLastCopiedLine ? { source: Icon.ArrowRight, tintColor: Color.Green } : undefined}
             accessories={accessories}
             actions={
@@ -288,6 +343,12 @@ function LyricsFromArgumentView({ query, defaultCopyMode }: Readonly<{ query: st
                   icon={Icon.Globe}
                   shortcut={{ modifiers: ["cmd", "shift"], key: "e" }}
                   onAction={() => copyLineInEnglish(line)}
+                />
+                <Action
+                  title="Play in Spotify"
+                  icon={Icon.Play}
+                  shortcut={{ modifiers: ["cmd", "shift"], key: "p" }}
+                  onAction={() => playCurrentSong()}
                 />
                 <Action
                   title="Jump to Last Line"

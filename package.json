@@ -40,6 +40,15 @@
           ]
         },
         {
+          "name": "showInlineTranslation",
+          "type": "checkbox",
+          "required": false,
+          "title": "Inline Translation",
+          "label": "Show English translation for non-English songs",
+          "description": "Detects the song's main language and shows an English translation beside each line. Uses the MyMemory daily quota.",
+          "default": true
+        },
+        {
           "name": "translationContactEmail",
           "type": "textfield",
           "required": false,
@@ -54,6 +63,39 @@
           "type": "text",
           "placeholder": "Song name (optionally: song - artist)",
           "required": true
+        }
+      ]
+    },
+    {
+      "name": "play-song",
+      "title": "Play Song",
+      "description": "Search a song and start playing it in the Spotify desktop app, or open it in YouTube Music.",
+      "mode": "view",
+      "preferences": [
+        {
+          "name": "spotifyClientId",
+          "type": "textfield",
+          "required": false,
+          "title": "Spotify Client ID",
+          "description": "Client ID of your own Spotify app. Register the redirect URI https://raycast.com/redirect?packageName=Extension. No client secret is needed or stored.",
+          "placeholder": "0123456789abcdef0123456789abcdef"
+        },
+        {
+          "name": "closeAfterPlay",
+          "type": "checkbox",
+          "required": false,
+          "title": "Window Behavior",
+          "label": "Close Raycast after starting playback",
+          "description": "Closes the Raycast window and shows a HUD once playback starts.",
+          "default": true
+        }
+      ],
+      "arguments": [
+        {
+          "name": "songName",
+          "type": "text",
+          "placeholder": "Song name (optionally: song - artist)",
+          "required": false
         }
       ]
     }
@@ -75,6 +117,7 @@
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
     "prepublishOnly": "echo \"Use npm run publish to publish this extension to the Raycast Store.\" && exit 1",
-    "publish": "npx @raycast/api@latest publish"
+    "publish": "npx @raycast/api@latest publish",
+    "test": "node --test \"src/**/*.test.ts\""
   }
 }

@@ -15,12 +15,31 @@ type MyMemoryTranslationResponse = {
   quotaFinished?: boolean;
 };
 
+/**
+ * Outcome of a single line translation.
+ *
+ * "already-english" is its own case because MyMemory rejects a request whose detected source
+ * language equals the target, which is exactly how an English line reports itself.
+ */
+export type TranslationOutcome =
+  | { status: "translated"; translation: EnglishTranslation }
+  | { status: "already-english" }
+  | { status: "failed"; message: string; quotaExceeded: boolean };
+
 const MYMEMORY_TRANSLATE_URL = "https://api.mymemory.translated.net/get";
 const MYMEMORY_PROVIDER: TranslationProvider = "mymemory";
+const MYMEMORY_MAX_BYTES = 500;
+const SAME_LANGUAGE_MARKER = "SELECT TWO DISTINCT LANGUAGES";
+const QUOTA_MESSAGE =
+  "MyMemory daily translation quota reached. Add a contact email in preferences or try again tomorrow.";
+
+function isSameLanguageRejection(payload: MyMemoryTranslationResponse) {
+  return (payload.responseDetails ?? "").toUpperCase().includes(SAME_LANGUAGE_MARKER);
+}
 
 function getMyMemoryErrorMessage(payload: MyMemoryTranslationResponse) {
   if (payload.quotaFinished) {
-    return "MyMemory daily translation quota reached. Add a contact email in preferences or try again tomorrow.";
+    return QUOTA_MESSAGE;
   }
 
   if (typeof payload.responseDetails === "string" && payload.responseDetails.trim().length > 0) {
@@ -30,17 +49,18 @@ function getMyMemoryErrorMessage(payload: MyMemoryTranslationResponse) {
   return "MyMemory could not translate this line.";
 }
 
-export async function translateLineToEnglish(
-  text: string,
-  preferences: TranslationPreferences,
-): Promise<EnglishTranslation> {
+export async function translateLine(text: string, preferences: TranslationPreferences): Promise<TranslationOutcome> {
   const normalizedText = text.trim();
   if (!normalizedText) {
-    throw new Error("Nothing to translate.");
+    return { status: "failed", message: "Nothing to translate.", quotaExceeded: false };
   }
 
-  if (new TextEncoder().encode(normalizedText).length > 500) {
-    throw new Error("This line is too long for MyMemory's free translation endpoint.");
+  if (new TextEncoder().encode(normalizedText).length > MYMEMORY_MAX_BYTES) {
+    return {
+      status: "failed",
+      message: "This line is too long for MyMemory's free translation endpoint.",
+      quotaExceeded: false,
+    };
   }
 
   const query = new URLSearchParams({
@@ -54,26 +74,54 @@ export async function translateLineToEnglish(
     query.set("de", contactEmail);
   }
 
-  const response = await fetch(`${MYMEMORY_TRANSLATE_URL}?${query.toString()}`);
+  let payload: MyMemoryTranslationResponse;
 
-  if (!response.ok) {
-    throw new Error(`Translation failed with status ${response.status}.`);
+  try {
+    const response = await fetch(`${MYMEMORY_TRANSLATE_URL}?${query.toString()}`);
+    payload = (await response.json()) as MyMemoryTranslationResponse;
+  } catch {
+    return { status: "failed", message: "Could not reach the translation service.", quotaExceeded: false };
   }
 
-  const payload = (await response.json()) as MyMemoryTranslationResponse;
-  if ((payload.responseStatus ?? 200) !== 200 || payload.quotaFinished) {
-    throw new Error(getMyMemoryErrorMessage(payload));
+  if (isSameLanguageRejection(payload)) {
+    return { status: "already-english" };
+  }
+
+  if (payload.quotaFinished) {
+    return { status: "failed", message: QUOTA_MESSAGE, quotaExceeded: true };
   }
 
   const translatedText = payload.responseData?.translatedText?.trim();
-
-  if (!translatedText) {
-    throw new Error(getMyMemoryErrorMessage(payload));
+  if ((payload.responseStatus ?? 200) !== 200 || !translatedText) {
+    return { status: "failed", message: getMyMemoryErrorMessage(payload), quotaExceeded: false };
   }
 
   return {
-    text: translatedText,
-    detectedSourceLanguage: payload.responseData?.detectedLanguage?.trim(),
-    provider: MYMEMORY_PROVIDER,
+    status: "translated",
+    translation: {
+      text: translatedText,
+      detectedSourceLanguage: payload.responseData?.detectedLanguage?.trim(),
+      provider: MYMEMORY_PROVIDER,
+    },
   };
+}
+
+/**
+ * Throwing wrapper kept for the single-line copy action, which wants an error to surface.
+ */
+export async function translateLineToEnglish(
+  text: string,
+  preferences: TranslationPreferences,
+): Promise<EnglishTranslation> {
+  const outcome = await translateLine(text, preferences);
+
+  if (outcome.status === "translated") {
+    return outcome.translation;
+  }
+
+  if (outcome.status === "already-english") {
+    return { text: text.trim(), detectedSourceLanguage: "en", provider: MYMEMORY_PROVIDER };
+  }
+
+  throw new Error(outcome.message);
 }

@@ -1,10 +1,13 @@
 import { LocalStorage } from "@raycast/api";
+import { buildTextCacheKey } from "./cache-key";
 import { EnglishTranslation, LyricsLine, SongSearchResult } from "./types";
 import { normalizeKeyPart } from "./transform";
 
 const LAST_INDEX_PREFIX = "lyricsTracer:lastIndex:v2:";
 const LEGACY_LAST_INDEX_PREFIX = "lyricsTracer:lastIndex:";
 const TRANSLATION_CACHE_PREFIX = "lyricsTracer:translation:v1:";
+const LINE_TRANSLATION_PREFIX = "lyricsTracer:lineTranslation:v2:";
+const SONG_LANGUAGE_PREFIX = "lyricsTracer:songLanguage:v1:";
 
 export type SavedProgress = {
   index: number;
@@ -153,4 +156,64 @@ export async function setCachedTranslation(keys: string[], line: LyricsLine, tra
       LocalStorage.setItem(`${TRANSLATION_CACHE_PREFIX}${buildTranslationCacheKey(key, line)}`, serialized),
     ),
   );
+}
+
+/**
+ * Translation of one lyric line, keyed by the line text alone.
+ *
+ * Songs repeat their chorus, so keying by text rather than position means a repeated line is
+ * only ever paid for once, and stays cached across songs that share a line.
+ */
+export type CachedLineTranslation = {
+  text?: string;
+  isEnglish: boolean;
+};
+
+function buildLineTranslationKey(lineText: string) {
+  return `${LINE_TRANSLATION_PREFIX}${buildTextCacheKey(lineText)}`;
+}
+
+function parseCachedLineTranslation(raw: unknown): CachedLineTranslation | null {
+  if (typeof raw !== "string" || raw.length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<CachedLineTranslation>;
+
+    if (parsed.isEnglish === true) {
+      return { isEnglish: true };
+    }
+
+    if (typeof parsed.text !== "string" || parsed.text.trim().length === 0) {
+      return null;
+    }
+
+    return { text: parsed.text, isEnglish: false };
+  } catch {
+    return null;
+  }
+}
+
+export async function getCachedLineTranslation(lineText: string): Promise<CachedLineTranslation | null> {
+  return parseCachedLineTranslation(await LocalStorage.getItem(buildLineTranslationKey(lineText)));
+}
+
+export async function setCachedLineTranslation(lineText: string, value: CachedLineTranslation) {
+  await LocalStorage.setItem(buildLineTranslationKey(lineText), JSON.stringify(value));
+}
+
+export async function getCachedSongLanguage(keys: string[]): Promise<string | null> {
+  for (const key of keys) {
+    const raw = await LocalStorage.getItem(`${SONG_LANGUAGE_PREFIX}${key}`);
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      return raw.trim();
+    }
+  }
+
+  return null;
+}
+
+export async function setCachedSongLanguage(keys: string[], language: string) {
+  await Promise.all(keys.map((key) => LocalStorage.setItem(`${SONG_LANGUAGE_PREFIX}${key}`, language)));
 }

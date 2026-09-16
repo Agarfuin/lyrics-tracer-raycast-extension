@@ -22,3 +22,28 @@ export type EnglishTranslation = {
   detectedSourceLanguage?: string;
   provider: TranslationProvider;
 };
+
+export type RankableTrack = {
+  title: string;
+  artist: string;
+};
+
+export type ParsedSongQuery = {
+  titleQuery: string;
+  artistQuery?: string;
+};
+
+export type SpotifyTrack = {
+  id: string;
+  title: string;
+  artist: string;
+  album?: string;
+  durationMs?: number;
+  explicit?: boolean;
+  artworkUrl?: string;
+};
+
+export type SpotifyCredentials = {
+  accessToken: string;
+  refresh: () => Promise<string>;
+};
